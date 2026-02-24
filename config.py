@@ -25,6 +25,9 @@ TEMPORAL_HOST = os.getenv("TEMPORAL_HOST", "localhost:7233")
 TEMPORAL_TASK_QUEUE = "repo-pilot-queue"
 TEMPORAL_NAMESPACE = "default"
 
+# Database
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://repopilot:repopilot@localhost:5432/repo_pilot")
+
 # Pipeline
 AUTO_MERGE_THRESHOLD = float(os.getenv("AUTO_MERGE_THRESHOLD", "7.0"))
 IMPROVEMENT_BRANCH_PREFIX = "repo-pilot"

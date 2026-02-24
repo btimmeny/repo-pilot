@@ -16,6 +16,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -24,6 +25,7 @@ from pydantic import BaseModel
 import config
 from temporalio.client import Client
 from workflows.pipeline import CodeImprovementPipeline
+from beads import db as bead_db
 
 load_dotenv()
 
@@ -40,6 +42,13 @@ temporal_client: Client | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global temporal_client
+    # Initialize Postgres
+    try:
+        bead_db.init_db()
+        log.info("Postgres database initialized")
+    except Exception as e:
+        log.warning("Could not connect to Postgres: %s (beads will be in-memory only)", e)
+    # Connect to Temporal
     try:
         temporal_client = await Client.connect(config.TEMPORAL_HOST)
         log.info("Connected to Temporal at %s", config.TEMPORAL_HOST)
@@ -115,10 +124,49 @@ async def start_pipeline(req: PipelineStartRequest):
         )
 
 
+@app.get("/pipeline/runs")
+async def list_pipeline_runs(status: str | None = None, limit: int = 50):
+    """List all pipeline runs."""
+    # Try Postgres first
+    try:
+        runs = bead_db.list_pipeline_runs(limit=limit, status=status)
+        return {"runs": [_serialize(r) for r in runs]}
+    except Exception:
+        pass
+
+    # Fallback: JSON files
+    config.PIPELINE_RUNS_DIR.mkdir(exist_ok=True)
+    runs = []
+    for log_file in sorted(config.PIPELINE_RUNS_DIR.glob("*.json"), reverse=True):
+        try:
+            with open(log_file) as f:
+                data = json.load(f)
+            runs.append({
+                "run_id": data.get("run_id"),
+                "status": data.get("status"),
+                "started_at": data.get("started_at"),
+                "duration_sec": data.get("duration_sec"),
+                "improvements": len(data.get("improvements", [])),
+            })
+        except Exception:
+            pass
+    return {"runs": runs}
+
+
 @app.get("/pipeline/{run_id}")
 async def get_pipeline_run(run_id: str):
     """Get the results of a pipeline run."""
-    # Check local log file first
+    # Check Postgres first
+    try:
+        row = bead_db.get_pipeline_run(run_id)
+        if row:
+            row["beads"] = bead_db.get_beads_for_run(run_id)
+            row["bead_summary"] = bead_db.get_bead_summary(run_id)
+            return _serialize(row)
+    except Exception:
+        pass
+
+    # Fallback: check local log file
     log_file = config.PIPELINE_RUNS_DIR / f"{run_id}.json"
     if log_file.exists():
         with open(log_file) as f:
@@ -143,25 +191,56 @@ async def get_pipeline_run(run_id: str):
     raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
 
 
-@app.get("/pipeline/runs")
-async def list_pipeline_runs():
-    """List all pipeline runs from the log directory."""
-    config.PIPELINE_RUNS_DIR.mkdir(exist_ok=True)
-    runs = []
-    for log_file in sorted(config.PIPELINE_RUNS_DIR.glob("*.json"), reverse=True):
-        try:
-            with open(log_file) as f:
-                data = json.load(f)
-            runs.append({
-                "run_id": data.get("run_id"),
-                "status": data.get("status"),
-                "started_at": data.get("started_at"),
-                "duration_sec": data.get("duration_sec"),
-                "improvements": len(data.get("improvements", [])),
-            })
-        except Exception:
-            pass
-    return {"runs": runs}
+# ── Bead query endpoints ──────────────────────────────────────────────
+
+@app.get("/beads/{run_id}")
+async def get_beads(run_id: str, status: str | None = None, category: str | None = None):
+    """Get all beads for a pipeline run, with optional filters."""
+    try:
+        if status:
+            beads = bead_db.get_beads_by_status(status, run_id=run_id)
+        elif category:
+            beads = bead_db.get_beads_by_category(category, run_id=run_id)
+        else:
+            beads = bead_db.get_beads_for_run(run_id)
+        return {"run_id": run_id, "beads": [_serialize(b) for b in beads], "count": len(beads)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+
+@app.get("/beads/{run_id}/summary")
+async def get_bead_summary(run_id: str):
+    """Get an aggregate summary of beads for a run."""
+    try:
+        summary = bead_db.get_bead_summary(run_id)
+        return {"run_id": run_id, **_serialize(summary)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+
+@app.get("/bead/{bead_id}")
+async def get_single_bead(bead_id: str):
+    """Get a single bead by ID."""
+    try:
+        bead = bead_db.get_bead(bead_id)
+        if not bead:
+            raise HTTPException(status_code=404, detail=f"Bead not found: {bead_id}")
+        return _serialize(bead)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+
+def _serialize(obj: Any) -> Any:
+    """Make a dict JSON-serializable (handle datetimes, Decimals, etc)."""
+    if isinstance(obj, dict):
+        return {k: _serialize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_serialize(v) for v in obj]
+    if hasattr(obj, "isoformat"):
+        return obj.isoformat()
+    return obj
 
 
 # ── In-process pipeline (fallback when Temporal is not available) ─────
@@ -197,6 +276,12 @@ async def _run_pipeline_inprocess(repo_path: str) -> str:
         "started_at": datetime.now(timezone.utc).isoformat(),
         "status": "running",
     }
+
+    # Persist initial run record to Postgres
+    try:
+        bead_db.upsert_pipeline_run(run_record)
+    except Exception as e:
+        log.warning("Could not persist run to Postgres: %s", e)
 
     loop = asyncio.get_running_loop()
 
@@ -335,12 +420,18 @@ async def _run_pipeline_inprocess(repo_path: str) -> str:
     run_record["beads"] = tracker.to_list()
     run_record["bead_summary"] = tracker.summary()
 
-    # Save log
+    # Save log (JSON file)
     config.PIPELINE_RUNS_DIR.mkdir(exist_ok=True)
     log_path = config.PIPELINE_RUNS_DIR / f"{run_id}.json"
     with open(log_path, "w") as f:
         json.dump(run_record, f, indent=2, default=str)
     run_record["log_file"] = str(log_path)
+
+    # Persist final run record to Postgres
+    try:
+        bead_db.upsert_pipeline_run(run_record)
+    except Exception as e:
+        log.warning("Could not persist final run to Postgres: %s", e)
 
     log.info("Pipeline %s complete in %.1fs — %s", run_id, run_record["duration_sec"], run_record["status"])
     return run_id
