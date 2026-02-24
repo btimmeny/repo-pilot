@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+openai
+pydantic
+python-dotenv
+temporalio
+gitpython
+pytest
+aiofiles
+httpx
