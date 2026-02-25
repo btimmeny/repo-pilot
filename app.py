@@ -87,6 +87,40 @@ def health():
     }
 
 
+# ── Scaffold ─────────────────────────────────────────────────────────
+
+class ScaffoldRequest(BaseModel):
+    repo_path: str = str(config.TARGET_REPO_PATH)
+    commit: bool = True  # auto-commit generated files
+
+
+@app.post("/scaffold")
+async def scaffold_repository(req: ScaffoldRequest):
+    """Scaffold best-practice files for a repository."""
+    repo_path = req.repo_path
+    if not Path(repo_path).is_dir():
+        raise HTTPException(status_code=400, detail=f"Repository not found: {repo_path}")
+
+    from activities.scaffold import scaffold_repo
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, scaffold_repo, repo_path)
+
+    # Auto-commit if requested and files were created
+    if req.commit and result["created"]:
+        from activities.git_ops import commit_changes
+        try:
+            await loop.run_in_executor(
+                None, commit_changes, repo_path,
+                f"repo-pilot: scaffold {len(result['created'])} best-practice files",
+            )
+            result["committed"] = True
+        except Exception as e:
+            result["committed"] = False
+            result["commit_error"] = str(e)
+
+    return result
+
+
 # ── Pipeline ──────────────────────────────────────────────────────────
 
 @app.post("/pipeline/start", response_model=PipelineStartResponse)
