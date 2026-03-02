@@ -1,5 +1,8 @@
 """
 Pydantic models for the pipeline.
+
+Note: Bead and BeadStatus have moved to features.beads.models.
+They are re-exported here for backward compatibility.
 """
 
 from __future__ import annotations
@@ -9,13 +12,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-
-class BeadStatus(str, Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    SKIPPED = "skipped"
+# Bead domain models — canonical home is features.beads.models
+from features.beads.models import Bead, BeadStatus  # noqa: F401
 
 
 class ImprovementCategory(str, Enum):
@@ -30,22 +28,6 @@ class TestGroup(str, Enum):
     SECURITY = "security"
     COMPLIANCE = "compliance"
     INTEGRATION = "integration"
-
-
-@dataclass
-class Bead:
-    """A single tracked unit of work in the pipeline."""
-    id: str
-    name: str
-    category: str
-    status: BeadStatus = BeadStatus.PENDING
-    started_at: str | None = None
-    completed_at: str | None = None
-    duration_sec: float | None = None
-    input_summary: str = ""
-    output_summary: str = ""
-    error: str | None = None
-    metadata: dict = field(default_factory=dict)
 
 
 @dataclass

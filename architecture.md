@@ -65,10 +65,14 @@ repo-pilot/
 │   ├── git_ops.py              # Steps 4/8: Branch, commit, push, PR, auto-merge
 │   ├── update_docs.py          # Step 9: Regenerate documentation post-merge
 │   └── scaffold.py             # Standalone: Generate all missing best-practice files
-├── beads/
-│   ├── __init__.py
-│   ├── tracker.py              # BeadTracker — in-memory chain with DB persistence
-│   └── db.py                   # Postgres backing store for beads and pipeline runs
+├── features/
+│   ├── __init__.py             # Features package — convention for feature-based organization
+│   └── beads/
+│       ├── __init__.py         # Public API: BeadTracker, Bead, BeadStatus
+│       ├── models.py           # Bead and BeadStatus domain models
+│       ├── tracker.py          # BeadTracker — in-memory chain with DB persistence
+│       └── db.py               # Postgres backing store for beads and pipeline runs
+├── beads/                      # Backward-compatibility shims (re-exports from features.beads)
 ├── utils/
 │   ├── __init__.py
 │   ├── llm.py                  # OpenAI chat helpers (chat, chat_json) with retry
@@ -131,9 +135,10 @@ All LLM-dependent activities use `utils/llm.py` which provides retry logic with 
 
 ### 3.4 Data Layer
 
-#### Bead Tracking (`beads/tracker.py`, `beads/db.py`)
+#### Bead Tracking (`features/beads/tracker.py`, `features/beads/db.py`)
 
 - **BeadTracker:** In-memory chain of `Bead` dataclass instances. Every state change (create, start, complete, fail, skip) is persisted to Postgres in real-time.
+- **Feature folder:** All bead-related code lives in `features/beads/` (models, tracker, db). The old `beads/` package re-exports from the new location for backward compatibility.
 - **Postgres Tables:**
   - `pipeline_runs` -- One row per pipeline execution with JSONB columns for improvements, code_changes, review, test_results, merge_result, docs_updated, and repo_analysis.
   - `beads` -- One row per bead with FK to pipeline_runs, indexed on run_id, status, and category.
