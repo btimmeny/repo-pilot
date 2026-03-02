@@ -25,7 +25,7 @@ from pydantic import BaseModel
 import config
 from temporalio.client import Client
 from workflows.pipeline import CodeImprovementPipeline
-from beads import db as bead_db
+from features.beads import db as bead_db
 
 load_dotenv()
 
@@ -296,7 +296,7 @@ async def _run_pipeline_inprocess(repo_path: str) -> str:
         create_merge_request, auto_merge, checkout_main,
     )
     from activities.update_docs import update_docs
-    from beads.tracker import BeadTracker
+    from features.beads.tracker import BeadTracker
 
     run_id = f"run-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
     branch_name = f"{config.IMPROVEMENT_BRANCH_PREFIX}/{run_id}"

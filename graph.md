@@ -128,7 +128,7 @@ Client (curl / HTTP)
 ```
 app.py
   ├── config.py (settings)
-  ├── beads/db.py (init_db, pipeline run CRUD, bead queries)
+  ├── features/beads/db.py (init_db, pipeline run CRUD, bead queries)
   ├── workflows/pipeline.py (CodeImprovementPipeline)
   │     ├── activities/analyze.py
   │     │     ├── utils/llm.py (chat, chat_json)
@@ -149,9 +149,9 @@ app.py
   │     ├── activities/git_ops.py (subprocess: git, gh)
   │     ├── activities/update_docs.py
   │     │     └── activities/analyze.py (re-uses analyze)
-  │     ├── beads/tracker.py
-  │     │     ├── models/schemas.py (Bead, BeadStatus)
-  │     │     └── beads/db.py (upsert_bead)
+  │     ├── features/beads/tracker.py
+  │     │     ├── features/beads/models.py (Bead, BeadStatus)
+  │     │     └── features/beads/db.py (upsert_bead)
   │     └── config.py
   └── activities/scaffold.py (standalone scaffold endpoint)
         ├── utils/llm.py
@@ -169,12 +169,15 @@ utils/llm.py
 utils/repo_scanner.py
   └── config.py (ANALYZABLE_EXTENSIONS, MAX_FILE_SIZE, MAX_CONTEXT_CHARS)
 
-beads/db.py
+features/beads/db.py
   ├── psycopg2 (Postgres driver)
   └── config.py (DATABASE_URL)
 
-models/schemas.py
+features/beads/models.py
   └── (no internal dependencies — pure dataclasses)
+
+models/schemas.py
+  └── features/beads/models.py (re-exports Bead, BeadStatus)
 ```
 
 ## 4. LLM Call Flow

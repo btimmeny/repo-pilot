@@ -38,7 +38,7 @@ with workflow.unsafe.imports_passed_through():
         create_merge_request, auto_merge, checkout_main,
     )
     from activities.update_docs import update_docs
-    from beads.tracker import BeadTracker
+    from features.beads.tracker import BeadTracker
     import config
 
 log = logging.getLogger(__name__)
